@@ -70,25 +70,22 @@ function gmr
 
     set title "[MR] $source_branch → $target_branch"
 
-    # List commits that not merged to target branch
+    # List commits that are NOT merged into target branch
     set commits (
         git log "$target_branch..$source_branch" \
-            --pretty=format:"- %s (%h)" \
-        | grep -v "^-\sMerge branch"
+            --no-merges \
+            --pretty=format:"- %s (%h)"
     )
 
-    # Show error if no changes between source and target branch
+    # Show error if no changes
     if test (count $commits) -eq 0
         echo "❌ No changes detected between '$source_branch' and '$target_branch'"
         echo "   Merge request was NOT created."
         return 2
     end
-    
-    set description "### Changes\n\n"(string join \n $commit_list)
 
-    for c in $commits
-        set description "$description$c\n"
-    end
+    # Proper multiline description
+    set description (printf "### Changes\n\n%s\n" (string join \n $commits))
 
     glab mr create \
         -s $source_branch \
@@ -99,3 +96,4 @@ function gmr
         -d "$description" \
         --yes
 end
+
