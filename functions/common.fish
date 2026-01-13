@@ -45,3 +45,57 @@ alias eopen="explorer.exe ."
 # Python Config
 alias python=python3
 alias pip=pip3
+
+function dockerlaunch
+    # Usage: dockerlaunch project-name image-name tag
+    set project $argv[1]
+    set image $argv[2]
+    set tag $argv[3]
+
+    docker build -t "$image:$tag" .
+    docker tag "$image:$tag" nexus.pactindo.com:8443/$project/$image:$tag
+    docker push nexus.pactindo.com:8443/$project/$image:$tag
+end
+
+function gmr
+    if test (count $argv) -lt 3
+        echo "Usage:"
+        echo "  gmr <source_branch> <target_branch> <reviewer>"
+        return 1
+    end
+
+    set source_branch $argv[1]
+    set target_branch $argv[2]
+    set reviewer $argv[3]
+
+    set title "[MR] $source_branch → $target_branch"
+
+    # List commits that not merged to target branch
+    set commits (
+        git log "$target_branch..$source_branch" \
+            --pretty=format:"- %s (%h)" \
+        | grep -v "^-\sMerge branch"
+    )
+
+    # Show error if no changes between source and target branch
+    if test (count $commits) -eq 0
+        echo "❌ No changes detected between '$source_branch' and '$target_branch'"
+        echo "   Merge request was NOT created."
+        return 2
+    end
+    
+    set description "### Changes\n\n"(string join \n $commit_list)
+
+    for c in $commits
+        set description "$description$c\n"
+    end
+
+    glab mr create \
+        -s $source_branch \
+        -b $target_branch \
+        -a @me \
+        --reviewer $reviewer \
+        -t "$title" \
+        -d "$description" \
+        --yes
+end
