@@ -85,7 +85,10 @@ function gmr
     end
 
     # Proper multiline description
-    set description (printf "### Changes\n\n%s\n" (string join \n $commits))
+    set description (
+        string join \n -- $commits \
+        | string collect
+    )
 
     glab mr create \
         -s $source_branch \
@@ -95,5 +98,17 @@ function gmr
         -t "$title" \
         -d "$description" \
         --yes
+
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "📌 Title:"
+    echo "--------------------------------------"
+    echo "$title"
+    echo
+    echo "📝 Description:"
+    echo "--------------------------------------"
+    printf "%s\n" "$description"
+    echo
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo
 end
 
