@@ -67,48 +67,68 @@ function gmr
     set source_branch $argv[1]
     set target_branch $argv[2]
     set reviewer $argv[3]
+    
+    # ==================================================
+    # Resolve assignee username (NO @)
+    # ==================================================
+    set assignee (glab api user 2>/dev/null | jq -r '.username')
+
+    if test -z "$assignee" -o "$assignee" = "null"
+        set assignee "me"
+    end
 
     set title "[MR] $source_branch → $target_branch"
 
-    # List commits that are NOT merged into target branch
+    # =========================
+    # Get latest tag from target branch
+    # =========================
+    set latest_tag (git describe --tags --abbrev=0 $target_branch 2>/dev/null)
+    if test -z "$latest_tag"
+        set latest_tag "no-tag"
+    end
+
+    # =========================
+    # List commits NOT merged
+    # =========================
     set commits (
         git log "$target_branch..$source_branch" \
             --no-merges \
             --pretty=format:"- %s (%h)"
     )
 
-    # Show error if no changes
     if test (count $commits) -eq 0
         echo "❌ No changes detected between '$source_branch' and '$target_branch'"
         echo "   Merge request was NOT created."
         return 2
     end
 
-    # Proper multiline description
+    # =========================
+    # SAFE multiline description (NO HEADER)
+    # =========================
     set description (
-        string join \n -- $commits \
+        string join \n -- \
+            $commits \
         | string collect
     )
 
     glab mr create \
-        -s $source_branch \
-        -b $target_branch \
-        -a @me \
-        --reviewer $reviewer \
+        -s "$source_branch" \
+        -b "$target_branch" \
+        -a "$assignee" \
+        --reviewer "$reviewer" \
         -t "$title" \
         -d "$description" \
         --yes
 
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "📌 Title:"
-    echo "--------------------------------------"
-    echo "$title"
-    echo
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "📌 $title"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "🛠️ Assignee   : $assignee"
+    echo "👁️ Reviewer   : $reviewer"
+    echo "🏷️ Target tag : $latest_tag"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "📝 Description:"
-    echo "--------------------------------------"
     printf "%s\n" "$description"
-    echo
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo
 end
-
