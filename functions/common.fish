@@ -132,3 +132,14 @@ function gmr
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo
 end
+
+function vpn
+    if test (count $argv) -eq 0
+        echo "Usage: vpn <profile>"
+        echo "Available profiles:"
+        ls ~/.config/openfortivpn
+        return 1
+    end
+
+    sudo openfortivpn -c ~/.config/openfortivpn/$argv[1]/config
+end
