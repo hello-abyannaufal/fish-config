@@ -67,28 +67,12 @@ function gmr
     set source_branch $argv[1]
     set target_branch $argv[2]
     set reviewer $argv[3]
-
-    # ==================================================
-    # Ensure we are inside git repo
-    # ==================================================
-    git rev-parse --is-inside-work-tree >/dev/null 2>&1
-    or begin
-        echo "❌ Not inside a git repository."
-        return 1
-    end
-
-    # ==================================================
-    # Sync remote (IMPORTANT FIX)
-    # ==================================================
-    echo "🔄 Fetching latest from origin..."
-    git fetch --prune --tags origin >/dev/null 2>&1
-
-    set remote_target "origin/$target_branch"
-
+    
     # ==================================================
     # Resolve assignee username (NO @)
     # ==================================================
     set assignee (glab api user 2>/dev/null | jq -r '.username')
+
     if test -z "$assignee" -o "$assignee" = "null"
         set assignee "me"
     end
@@ -96,9 +80,10 @@ function gmr
     set title "[MR] $source_branch → $target_branch"
 
     # =========================
-    # Get latest tag from remote target branch
+    # Get latest tag from target branch
     # =========================
-    set latest_tag (git describe --tags --abbrev=0 $remote_target 2>/dev/null)
+    set latest_tag (git describe --tags --abbrev=0 $target_branch 2>/dev/null)
+
     if test -z "$latest_tag"
         set latest_tag "no-tag"
     end
@@ -113,6 +98,10 @@ function gmr
         set dash_parts (string split "-" $latest_tag)
         set dash_count (count $dash_parts)
 
+        # --------------------------------------------
+        # CASE 1: semver-build-labelNumber
+        # Example: 1.0.5-600111-DEV1
+        # --------------------------------------------
         if test $dash_count -ge 3
             set last_index $dash_count
             set last_part $dash_parts[$last_index]
@@ -120,23 +109,33 @@ function gmr
             if string match -rq '^[A-Za-z]+[0-9]+$' -- $last_part
                 set prefix (string replace -r '[0-9]+$' '' $last_part)
                 set number (string replace -r '^[^0-9]+' '' $last_part)
+
                 set new_number (math "$number + 1")
                 set dash_parts[$last_index] "$prefix$new_number"
+
                 set expected_tag (string join "-" $dash_parts)
             else
                 set expected_tag "$latest_tag"
             end
 
+        # --------------------------------------------
+        # CASE 2: semver-labelNumber OR semver-build
+        # Example: 1.0.1-DEV2
+        #          1.0.1-600111
+        # --------------------------------------------
         else if test $dash_count -eq 2
             set first_part $dash_parts[1]
             set second_part $dash_parts[2]
 
+            # If label+number (DEV2, RC3, etc)
             if string match -rq '^[A-Za-z]+[0-9]+$' -- $second_part
                 set prefix (string replace -r '[0-9]+$' '' $second_part)
                 set number (string replace -r '^[^0-9]+' '' $second_part)
+
                 set new_number (math "$number + 1")
                 set expected_tag "$first_part-$prefix$new_number"
 
+            # If numeric build
             else if string match -rq '^[0-9]+$' -- $second_part
                 set new_build (math "$second_part + 1")
                 set expected_tag "$first_part-$new_build"
@@ -145,11 +144,17 @@ function gmr
                 set expected_tag "$latest_tag"
             end
 
+        # --------------------------------------------
+        # CASE 3: pure semver
+        # Example: 1.0.1
+        # --------------------------------------------
         else if string match -rq '^[0-9]+\.[0-9]+\.[0-9]+$' -- $latest_tag
             set parts (string split "." $latest_tag)
+
             set major $parts[1]
             set minor $parts[2]
             set patch $parts[3]
+
             set new_patch (math "$patch + 1")
             set expected_tag "$major.$minor.$new_patch"
 
@@ -159,10 +164,10 @@ function gmr
     end
 
     # =========================
-    # List commits NOT merged (COMPARE AGAINST REMOTE)
+    # List commits NOT merged
     # =========================
     set commits (
-        git log "$remote_target..$source_branch" \
+        git log "$target_branch..$source_branch" \
             --no-merges \
             --pretty=format:"- %s (%h)"
     )
@@ -173,7 +178,14 @@ function gmr
         return 2
     end
 
-    set description (string join \n -- $commits | string collect)
+    # =========================
+    # Multiline description
+    # =========================
+    set description (
+        string join \n -- \
+            $commits \
+        | string collect
+    )
 
     glab mr create \
         -s "$source_branch" \
@@ -190,13 +202,14 @@ function gmr
     echo "🛠️ Assignee   : $assignee"
     echo "👁️ Reviewer   : $reviewer"
     echo "🏷️ Target Tag : $latest_tag"
-    echo "🆕 Expected   : $expected_tag"
+    echo "☀️ Latest tag : $expected_tag"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "📝 Description:"
     printf "%s\n" "$description"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo
 end
+
 
 function vpn
     if test (count $argv) -eq 0
