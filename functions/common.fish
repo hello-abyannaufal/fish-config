@@ -67,12 +67,28 @@ function gmr
     set source_branch $argv[1]
     set target_branch $argv[2]
     set reviewer $argv[3]
-    
+
+    # ==================================================
+    # Ensure we are inside git repo
+    # ==================================================
+    git rev-parse --is-inside-work-tree >/dev/null 2>&1
+    or begin
+        echo "❌ Not inside a git repository."
+        return 1
+    end
+
+    # ==================================================
+    # Sync remote (IMPORTANT FIX)
+    # ==================================================
+    echo "🔄 Fetching latest from origin..."
+    git fetch --prune --tags origin >/dev/null 2>&1
+
+    set remote_target "origin/$target_branch"
+
     # ==================================================
     # Resolve assignee username (NO @)
     # ==================================================
     set assignee (glab api user 2>/dev/null | jq -r '.username')
-
     if test -z "$assignee" -o "$assignee" = "null"
         set assignee "me"
     end
@@ -80,18 +96,73 @@ function gmr
     set title "[MR] $source_branch → $target_branch"
 
     # =========================
-    # Get latest tag from target branch
+    # Get latest tag from remote target branch
     # =========================
-    set latest_tag (git describe --tags --abbrev=0 $target_branch 2>/dev/null)
+    set latest_tag (git describe --tags --abbrev=0 $remote_target 2>/dev/null)
     if test -z "$latest_tag"
         set latest_tag "no-tag"
     end
 
     # =========================
-    # List commits NOT merged
+    # Calculate Expected New Tag
+    # =========================
+    set expected_tag "unknown"
+
+    if test "$latest_tag" != "no-tag"
+
+        set dash_parts (string split "-" $latest_tag)
+        set dash_count (count $dash_parts)
+
+        if test $dash_count -ge 3
+            set last_index $dash_count
+            set last_part $dash_parts[$last_index]
+
+            if string match -rq '^[A-Za-z]+[0-9]+$' -- $last_part
+                set prefix (string replace -r '[0-9]+$' '' $last_part)
+                set number (string replace -r '^[^0-9]+' '' $last_part)
+                set new_number (math "$number + 1")
+                set dash_parts[$last_index] "$prefix$new_number"
+                set expected_tag (string join "-" $dash_parts)
+            else
+                set expected_tag "$latest_tag"
+            end
+
+        else if test $dash_count -eq 2
+            set first_part $dash_parts[1]
+            set second_part $dash_parts[2]
+
+            if string match -rq '^[A-Za-z]+[0-9]+$' -- $second_part
+                set prefix (string replace -r '[0-9]+$' '' $second_part)
+                set number (string replace -r '^[^0-9]+' '' $second_part)
+                set new_number (math "$number + 1")
+                set expected_tag "$first_part-$prefix$new_number"
+
+            else if string match -rq '^[0-9]+$' -- $second_part
+                set new_build (math "$second_part + 1")
+                set expected_tag "$first_part-$new_build"
+
+            else
+                set expected_tag "$latest_tag"
+            end
+
+        else if string match -rq '^[0-9]+\.[0-9]+\.[0-9]+$' -- $latest_tag
+            set parts (string split "." $latest_tag)
+            set major $parts[1]
+            set minor $parts[2]
+            set patch $parts[3]
+            set new_patch (math "$patch + 1")
+            set expected_tag "$major.$minor.$new_patch"
+
+        else
+            set expected_tag "$latest_tag"
+        end
+    end
+
+    # =========================
+    # List commits NOT merged (COMPARE AGAINST REMOTE)
     # =========================
     set commits (
-        git log "$target_branch..$source_branch" \
+        git log "$remote_target..$source_branch" \
             --no-merges \
             --pretty=format:"- %s (%h)"
     )
@@ -102,14 +173,7 @@ function gmr
         return 2
     end
 
-    # =========================
-    # SAFE multiline description (NO HEADER)
-    # =========================
-    set description (
-        string join \n -- \
-            $commits \
-        | string collect
-    )
+    set description (string join \n -- $commits | string collect)
 
     glab mr create \
         -s "$source_branch" \
@@ -125,7 +189,8 @@ function gmr
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "🛠️ Assignee   : $assignee"
     echo "👁️ Reviewer   : $reviewer"
-    echo "🏷️ Target tag : $latest_tag"
+    echo "🏷️ Target Tag : $latest_tag"
+    echo "🆕 Expected   : $expected_tag"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "📝 Description:"
     printf "%s\n" "$description"
