@@ -1,9 +1,7 @@
 # Git Config
 alias gline="git log --all --decorate --oneline --graph"
 alias gleap="git switch"
-alias gcheck="git checkout"
-alias gstage="git commit -m"
-alias gpull="git pull"
+alias gpull="git fetch; git pull"
 alias ggrab="git pull --all"
 alias gpush="git push"
 alias gsave="git pull; git add .; git commit -m"
@@ -67,6 +65,23 @@ function gmr
     set source_branch $argv[1]
     set target_branch $argv[2]
     set reviewer $argv[3]
+
+    # ==================================================
+    # Ensure inside git repo
+    # ==================================================
+    git rev-parse --is-inside-work-tree >/dev/null 2>&1
+    or begin
+        echo "❌ Not inside a git repository."
+        return 1
+    end
+
+    # ==================================================
+    # Fetch latest from origin (NEW FEATURE)
+    # ==================================================
+    echo "🔄 Fetching latest tags & branches from origin..."
+    git fetch --prune --tags origin >/dev/null 2>&1
+
+    set remote_target "origin/$target_branch"
     
     # ==================================================
     # Resolve assignee username (NO @)
@@ -80,9 +95,9 @@ function gmr
     set title "[MR] $source_branch → $target_branch"
 
     # =========================
-    # Get latest tag from target branch
+    # Get latest tag from REMOTE target branch (UPDATED)
     # =========================
-    set latest_tag (git describe --tags --abbrev=0 $target_branch 2>/dev/null)
+    set latest_tag (git describe --tags --abbrev=0 $remote_target 2>/dev/null)
 
     if test -z "$latest_tag"
         set latest_tag "no-tag"
@@ -127,7 +142,6 @@ function gmr
             set first_part $dash_parts[1]
             set second_part $dash_parts[2]
 
-            # If label+number (DEV2, RC3, etc)
             if string match -rq '^[A-Za-z]+[0-9]+$' -- $second_part
                 set prefix (string replace -r '[0-9]+$' '' $second_part)
                 set number (string replace -r '^[^0-9]+' '' $second_part)
@@ -135,7 +149,6 @@ function gmr
                 set new_number (math "$number + 1")
                 set expected_tag "$first_part-$prefix$new_number"
 
-            # If numeric build
             else if string match -rq '^[0-9]+$' -- $second_part
                 set new_build (math "$second_part + 1")
                 set expected_tag "$first_part-$new_build"
@@ -164,10 +177,10 @@ function gmr
     end
 
     # =========================
-    # List commits NOT merged
+    # List commits NOT merged (UPDATED TO REMOTE TARGET)
     # =========================
     set commits (
-        git log "$target_branch..$source_branch" \
+        git log "$remote_target..$source_branch" \
             --no-merges \
             --pretty=format:"- %s (%h)"
     )
@@ -199,10 +212,10 @@ function gmr
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "📌 $title"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "🛠️ Assignee   : $assignee"
-    echo "👁️ Reviewer   : $reviewer"
-    echo "🏷️ Target Tag : $latest_tag"
-    echo "☀️ Latest tag : $expected_tag"
+    echo "🛠️ Assignee       : $assignee"
+    echo "👁️ Reviewer       : $reviewer"
+    echo "🏷️ Target Tag     : $latest_tag"
+    echo "☀️ Latest tag     : $expected_tag"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "📝 Description:"
     printf "%s\n" "$description"
