@@ -226,11 +226,33 @@ end
 
 function vpn
     if test (count $argv) -eq 0
-        echo "Usage: vpn <profile>"
+        echo "Usage: vpn <profile> [--debug|-v]"
         echo "Available profiles:"
         ls ~/.config/openfortivpn
         return 1
     end
 
-    sudo openfortivpn -c ~/.config/openfortivpn/$argv[1]/config
+    set profile $argv[1]
+    set debug 0
+
+    if test (count $argv) -ge 2
+        switch $argv[2]
+            case "--debug" "-v"
+                set debug 1
+        end
+    end
+
+    set config ~/.config/openfortivpn/$profile/config
+
+    if not test -f $config
+        echo "Config not found: $config"
+        return 1
+    end
+
+    if test $debug -eq 1
+        echo "🔍 Debug mode enabled"
+        sudo openfortivpn -vvv -c $config
+    else
+        sudo openfortivpn -c $config
+    end
 end
