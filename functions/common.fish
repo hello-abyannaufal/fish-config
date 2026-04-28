@@ -7,6 +7,8 @@ alias gpush="git push"
 alias gsave="git pull; git add .; git commit -m"
 alias gmelt="git merge --no-ff"
 alias gnote="git diff --name-only HEAD^ HEAD"
+alias getch="git fetch"
+alias gpick="git stash push --"
 
 function gcall
     git tag -a "$argv[1]" -m "$argv[2]"
@@ -21,6 +23,11 @@ end
 function gbcuts
     git branch -d "$argv[1]"
     git push --delete origin "$argv[1]"
+end
+
+function pack
+    set name $argv[1]
+    tar -zcvf $name.tar.gz $name
 end
 
 # NVM Config
