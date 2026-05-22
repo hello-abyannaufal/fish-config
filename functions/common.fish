@@ -6,7 +6,6 @@ alias ggrab="git pull --all"
 alias gpush="git push"
 alias gsave="git pull; git add .; git commit -m"
 alias gmelt="git merge --no-ff"
-alias gnote="git diff --name-only HEAD^ HEAD"
 alias getch="git fetch"
 alias gpick="git stash push --"
 
@@ -23,6 +22,56 @@ end
 function gbcuts
     git branch -d "$argv[1]"
     git push --delete origin "$argv[1]"
+end
+
+function gdiff
+    if test (count $argv) -lt 2
+        echo "Usage:"
+        echo "  gdiff <base_branch> <compare_branch>"
+        echo ""
+        echo "Example:"
+        echo "  gdiff staging feature/28-registrasi-migrasi-mb"
+        return 1
+    end
+
+    set base_branch $argv[1]
+    set compare_branch $argv[2]
+
+    git diff --name-status $base_branch...$compare_branch
+end
+
+function gwipe
+  set branches (git branch -vv | grep ': gone]' | awk '{print $1}')
+
+  if test -z "$branches"
+    echo "No stale branches to delete."
+    return
+  end
+
+  set force_flag "-d"
+  if contains -- --force $argv
+    set force_flag "-D"
+  end
+
+  echo "Branches to delete:"
+  for branch in $branches
+    echo "  $branch"
+  end
+  echo
+  read --prompt-str "Delete these branches? [y/N] " reply
+
+  if string match -qr '^[Yy]$' $reply
+    for branch in $branches
+      git branch $force_flag $branch
+      if test $status -eq 0
+        echo "  ✓ deleted $branch"
+      else
+        echo "  ✗ failed  $branch"
+      end
+    end
+  else
+    echo "Aborted."
+  end
 end
 
 function pack
