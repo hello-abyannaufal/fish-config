@@ -357,7 +357,7 @@ function gmr
     set log_dir ~/.local/share/fish/logs
     mkdir -p $log_dir
 
-    set log_file $log_dir/gmr.log
+    set log_file $log_dir/merge-(date "+%Y%m%d").log
     set timestamp (date "+%Y-%m-%d %H:%M:%S")
     set log_description (string join "" -- $commits | string collect)
 
