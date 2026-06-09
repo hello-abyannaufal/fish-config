@@ -19,9 +19,71 @@ function gbstem
     git push --set-upstream origin "$argv[1]"
 end
 
+# ~/.config/fish/functions/gbcuts.fish
+
 function gbcuts
-    git branch -d "$argv[1]"
-    git push --delete origin "$argv[1]"
+    set -l force 0
+    set -l branches
+
+    for arg in $argv
+        switch $arg
+            case -f --force
+                set force 1
+            case '*'
+                set branches $branches $arg
+        end
+    end
+
+    if test (count $branches) -lt 1
+        echo "Usage:"
+        echo "  gbcuts [-f|--force] <branch1> [branch2] ..."
+        return 1
+    end
+
+    git rev-parse --is-inside-work-tree >/dev/null 2>&1
+    or begin
+        echo "❌ Not inside a git repository."
+        return 1
+    end
+
+    set failed_branches
+    set success_branches
+
+    for branch in $branches
+        echo "🗑️  Deleting $branch..."
+
+        if test $force -eq 1
+            git branch -D "$branch" 2>/dev/null
+        else
+            git branch -d "$branch" 2>/dev/null
+        end
+        set local_code $status
+
+        git push --delete origin "$branch" 2>/dev/null
+        set remote_code $status
+
+        if test $local_code -eq 0 -a $remote_code -eq 0
+            set success_branches $success_branches $branch
+        else
+            set failed_branches $failed_branches $branch
+        end
+    end
+
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    if test (count $success_branches) -gt 0
+        echo "✅ Successfully deleted:"
+        for branch in $success_branches
+            echo "   • $branch"
+        end
+    end
+
+    if test (count $failed_branches) -gt 0
+        echo "❌ Failed to delete:"
+        for branch in $failed_branches
+            echo "   • $branch"
+        end
+    end
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 end
 
 function gdiff
@@ -279,6 +341,67 @@ function gmr
     echo
 end
 
+function gmr_bulk
+    if test (count $argv) -lt 3
+        echo "Usage:"
+        echo "  gmr_bulk <target_branch> <reviewer> <source_branch1> [source_branch2] ..."
+        return 1
+    end
+
+    set target_branch $argv[1]
+    set reviewer $argv[2]
+    set source_branches $argv[3..]
+
+    # ==================================================
+    # Ensure inside git repo
+    # ==================================================
+    git rev-parse --is-inside-work-tree >/dev/null 2>&1
+    or begin
+        echo "❌ Not inside a git repository."
+        return 1
+    end
+
+    set failed_branches
+    set no_changes_branches
+
+    for source_branch in $source_branches
+        set result (gmr $source_branch $target_branch $reviewer 2>&1)
+        set exit_code $status
+
+        if test $exit_code -eq 0
+            printf "%s\n" $result
+            echo
+        else if test $exit_code -eq 2
+            set no_changes_branches $no_changes_branches $source_branch
+        else
+            set failed_branches $failed_branches $source_branch
+        end
+    end
+
+    # ==================================================
+    # Report no changes branches
+    # ==================================================
+    if test (count $no_changes_branches) -gt 0
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "⚠️  No changes detected (MR skipped):"
+        for branch in $no_changes_branches
+            echo "   • $branch"
+        end
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    end
+
+    # ==================================================
+    # Report failed branches
+    # ==================================================
+    if test (count $failed_branches) -gt 0
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "❌ Failed to create MR:"
+        for branch in $failed_branches
+            echo "   • $branch"
+        end
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    end
+end
 
 function vpn
     if test (count $argv) -eq 0
