@@ -318,14 +318,54 @@ function gmr
         | string collect
     )
 
-    glab mr create \
+    set mr_output (glab mr create \
         -s "$source_branch" \
         -b "$target_branch" \
         -a "$assignee" \
         --reviewer "$reviewer" \
         -t "$title" \
         -d "$description" \
-        --yes
+        --yes 2>&1)
+    set mr_exit_code $status
+
+    if test $mr_exit_code -ne 0
+        echo "❌ Failed to create MR:"
+        printf "%s\n" $mr_output
+        return 1
+    end
+
+    printf "%s\n" $mr_output
+
+    # ==================================================
+    # Extract MR link from glab output
+    # ==================================================
+    set mr_link ""
+    for line in $mr_output
+        if string match -rq 'https?://[^\s]+merge_requests/[0-9]+' -- $line
+            set mr_link (string match -r 'https?://[^\s]+merge_requests/[0-9]+' -- $line)
+            break
+        end
+    end
+
+    if test -z "$mr_link"
+        set mr_link "unknown"
+    end
+
+    # ==================================================
+    # Log MR success
+    # ==================================================
+    set log_dir ~/.local/share/fish/logs
+    mkdir -p $log_dir
+
+    set log_file $log_dir/gmr.log
+    set timestamp (date "+%Y-%m-%d %H:%M:%S")
+    set log_description (string join "" -- $commits | string collect)
+
+    set log_entry "[$timestamp] $mr_link | $source_branch → $target_branch | $latest_tag → $expected_tag | assignee=$assignee | reviewer=$reviewer"
+
+    echo $log_entry >> $log_file
+    printf "%s\n" $commits >> $log_file
+    echo "" >> $log_file
 
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "📌 $title"
@@ -338,6 +378,7 @@ function gmr
     echo "📝 Description:"
     printf "%s\n" "$description"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "📄 Log saved to: $log_file"
     echo
 end
 
