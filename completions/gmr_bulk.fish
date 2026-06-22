@@ -18,6 +18,12 @@ complete -c gmr_bulk -n "__fish_gmr_bulk_pos_gte 3" \
     -a "(git branch --format='%(refname:short)' 2>/dev/null)" \
     -d "Source branch"
 
+# Flags: --major --minor --patch --pre
+complete -c gmr_bulk -l major -d "Bump major version"
+complete -c gmr_bulk -l minor -d "Bump minor version"
+complete -c gmr_bulk -l patch -d "Bump patch version"
+complete -c gmr_bulk -l pre -d "Bump pre-release version"
+
 # Helper: exact position check
 function __fish_gmr_bulk_pos
     set -l pos $argv[1]

@@ -134,16 +134,169 @@ function gwipe
   end
 end
 
-function gmr
-    if test (count $argv) -lt 3
-        echo "Usage:"
-        echo "  gmr <source_branch> <target_branch> <reviewer>"
+function gver
+    set -l bump ""
+    set -l branch ""
+
+    for arg in $argv
+        switch $arg
+            case --major
+                set bump major
+            case --minor
+                set bump minor
+            case --patch
+                set bump patch
+            case --pre
+                set bump pre
+            case '*'
+                set branch $arg
+        end
+    end
+
+    # Default branch: origin/<current branch>
+    if test -z "$branch"
+        set branch "origin/"(git branch --show-current 2>/dev/null)
+    end
+
+    # Get latest tag from the branch
+    set latest_tag (git describe --tags --abbrev=0 $branch 2>/dev/null)
+
+    if test -z "$latest_tag"
+        echo "❌ No tags found on $branch"
         return 1
     end
 
-    set source_branch $argv[1]
-    set target_branch $argv[2]
-    set reviewer $argv[3]
+    # Split by first dash to separate semver from pre-release
+    set dash_parts (string split -m1 "-" $latest_tag)
+    set semver $dash_parts[1]
+    set prerelease ""
+
+    if test (count $dash_parts) -ge 2
+        set prerelease $dash_parts[2]
+    end
+
+    # Parse semver
+    set sem_parts (string split "." $semver)
+    set major $sem_parts[1]
+    set minor $sem_parts[2]
+    set patch $sem_parts[3]
+
+    # Smart default: if has pre-release, bump pre; otherwise bump patch
+    if test -z "$bump"
+        if test -n "$prerelease"
+            set bump pre
+        else
+            set bump patch
+        end
+    end
+
+    # Calculate new version
+    switch $bump
+        case major
+            set major (math "$major + 1")
+            set minor 0
+            set patch 0
+            # Reset pre-release trailing number to 1 if exists
+            if test -n "$prerelease"
+                set pre_segments (string split "-" $prerelease)
+                set last_idx (count $pre_segments)
+                set last_seg $pre_segments[$last_idx]
+                if string match -rq '[0-9]+$' -- $last_seg
+                    set prefix (string replace -r '[0-9]+$' '' $last_seg)
+                    set pre_segments[$last_idx] "$prefix"1
+                end
+                set prerelease (string join "-" $pre_segments)
+            end
+        case minor
+            set minor (math "$minor + 1")
+            set patch 0
+            # Reset pre-release trailing number to 1 if exists
+            if test -n "$prerelease"
+                set pre_segments (string split "-" $prerelease)
+                set last_idx (count $pre_segments)
+                set last_seg $pre_segments[$last_idx]
+                if string match -rq '[0-9]+$' -- $last_seg
+                    set prefix (string replace -r '[0-9]+$' '' $last_seg)
+                    set pre_segments[$last_idx] "$prefix"1
+                end
+                set prerelease (string join "-" $pre_segments)
+            end
+        case patch
+            set patch (math "$patch + 1")
+            # Reset pre-release trailing number to 1 if exists
+            if test -n "$prerelease"
+                set pre_segments (string split "-" $prerelease)
+                set last_idx (count $pre_segments)
+                set last_seg $pre_segments[$last_idx]
+                if string match -rq '[0-9]+$' -- $last_seg
+                    set prefix (string replace -r '[0-9]+$' '' $last_seg)
+                    set pre_segments[$last_idx] "$prefix"1
+                end
+                set prerelease (string join "-" $pre_segments)
+            end
+        case pre
+            if test -z "$prerelease"
+                echo "⚠️  No pre-release label to bump on tag: $latest_tag"
+                return 1
+            end
+
+            # Increment trailing number of the last dash-segment
+            # e.g. "600111-DEV1" -> last segment is "DEV1" -> "DEV2"
+            set pre_segments (string split "-" $prerelease)
+            set last_idx (count $pre_segments)
+            set last_seg $pre_segments[$last_idx]
+
+            if string match -rq '[0-9]+$' -- $last_seg
+                set prefix (string replace -r '[0-9]+$' '' $last_seg)
+                set number (string match -r '[0-9]+$' -- $last_seg)
+                set new_number (math "$number + 1")
+                set pre_segments[$last_idx] "$prefix$new_number"
+            else
+                echo "⚠️  Cannot bump pre-release: no trailing number in '$last_seg'"
+                return 1
+            end
+
+            set prerelease (string join "-" $pre_segments)
+    end
+
+    # Build result
+    set new_semver "$major.$minor.$patch"
+
+    if test -n "$prerelease"
+        echo "$new_semver-$prerelease"
+    else
+        echo "$new_semver"
+    end
+end
+
+function gmr
+    if test (count $argv) -lt 3
+        echo "Usage:"
+        echo "  gmr <source_branch> <target_branch> <reviewer> [--major|--minor|--patch|--pre]"
+        return 1
+    end
+
+    set -l bump_flag ""
+    set -l positional
+
+    for arg in $argv
+        switch $arg
+            case --major --minor --patch --pre
+                set bump_flag $arg
+            case '*'
+                set positional $positional $arg
+        end
+    end
+
+    if test (count $positional) -lt 3
+        echo "Usage:"
+        echo "  gmr <source_branch> <target_branch> <reviewer> [--major|--minor|--patch|--pre]"
+        return 1
+    end
+
+    set source_branch $positional[1]
+    set target_branch $positional[2]
+    set reviewer $positional[3]
 
     # ==================================================
     # Ensure inside git repo
@@ -157,7 +310,6 @@ function gmr
     # ==================================================
     # Fetch latest from origin
     # ==================================================
-    echo "🔄 Fetching latest tags & branches from origin..."
     git fetch --prune --tags origin >/dev/null 2>&1
 
     set remote_target "origin/$target_branch"
@@ -183,74 +335,13 @@ function gmr
     end
 
     # =========================
-    # Calculate Expected New Tag
+    # Calculate Expected New Tag (using gver)
     # =========================
     set expected_tag "unknown"
 
     if test "$latest_tag" != "no-tag"
-
-        set dash_parts (string split "-" $latest_tag)
-        set dash_count (count $dash_parts)
-
-        # --------------------------------------------
-        # CASE 1: semver-build-labelNumber
-        # Example: 1.0.5-600111-DEV1
-        # --------------------------------------------
-        if test $dash_count -ge 3
-            set last_index $dash_count
-            set last_part $dash_parts[$last_index]
-
-            if string match -rq '^[A-Za-z]+[0-9]+$' -- $last_part
-                set prefix (string replace -r '[0-9]+$' '' $last_part)
-                set number (string replace -r '^[^0-9]+' '' $last_part)
-
-                set new_number (math "$number + 1")
-                set dash_parts[$last_index] "$prefix$new_number"
-
-                set expected_tag (string join "-" $dash_parts)
-            else
-                set expected_tag "$latest_tag"
-            end
-
-        # --------------------------------------------
-        # CASE 2: semver-labelNumber OR semver-build
-        # Example: 1.0.1-DEV2
-        #          1.0.1-600111
-        # --------------------------------------------
-        else if test $dash_count -eq 2
-            set first_part $dash_parts[1]
-            set second_part $dash_parts[2]
-
-            if string match -rq '^[A-Za-z]+[0-9]+$' -- $second_part
-                set prefix (string replace -r '[0-9]+$' '' $second_part)
-                set number (string replace -r '^[^0-9]+' '' $second_part)
-
-                set new_number (math "$number + 1")
-                set expected_tag "$first_part-$prefix$new_number"
-
-            else if string match -rq '^[0-9]+$' -- $second_part
-                set new_build (math "$second_part + 1")
-                set expected_tag "$first_part-$new_build"
-
-            else
-                set expected_tag "$latest_tag"
-            end
-
-        # --------------------------------------------
-        # CASE 3: pure semver
-        # Example: 1.0.1
-        # --------------------------------------------
-        else if string match -rq '^[0-9]+\.[0-9]+\.[0-9]+$' -- $latest_tag
-            set parts (string split "." $latest_tag)
-
-            set major $parts[1]
-            set minor $parts[2]
-            set patch $parts[3]
-
-            set new_patch (math "$patch + 1")
-            set expected_tag "$major.$minor.$new_patch"
-
-        else
+        set expected_tag (gver $bump_flag $remote_target)
+        if test $status -ne 0
             set expected_tag "$latest_tag"
         end
     end
@@ -295,8 +386,6 @@ function gmr
         return 1
     end
 
-    printf "%s\n" $mr_output
-
     # ==================================================
     # Extract MR link from glab output
     # ==================================================
@@ -328,6 +417,7 @@ function gmr
     printf "%s\n" $commits >> $log_file
     echo "" >> $log_file
 
+    echo "$mr_link"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "📌 $title"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -339,20 +429,37 @@ function gmr
     echo "📝 Description:"
     printf "%s\n" "$description"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "📄 Log saved to: $log_file"
     echo
 end
 
 function gmr_bulk
     if test (count $argv) -lt 3
         echo "Usage:"
-        echo "  gmr_bulk <target_branch> <reviewer> <source_branch1> [source_branch2] ..."
+        echo "  gmr_bulk <target_branch> <reviewer> <source_branch1> [source_branch2] ... [--major|--minor|--patch|--pre]"
         return 1
     end
 
-    set target_branch $argv[1]
-    set reviewer $argv[2]
-    set source_branches $argv[3..]
+    set -l bump_flag ""
+    set -l positional
+
+    for arg in $argv
+        switch $arg
+            case --major --minor --patch --pre
+                set bump_flag $arg
+            case '*'
+                set positional $positional $arg
+        end
+    end
+
+    if test (count $positional) -lt 3
+        echo "Usage:"
+        echo "  gmr_bulk <target_branch> <reviewer> <source_branch1> [source_branch2] ... [--major|--minor|--patch|--pre]"
+        return 1
+    end
+
+    set target_branch $positional[1]
+    set reviewer $positional[2]
+    set source_branches $positional[3..]
 
     # ==================================================
     # Ensure inside git repo
@@ -367,7 +474,7 @@ function gmr_bulk
     set no_changes_branches
 
     for source_branch in $source_branches
-        set result (gmr $source_branch $target_branch $reviewer 2>&1)
+        set result (gmr $source_branch $target_branch $reviewer $bump_flag 2>&1)
         set exit_code $status
 
         if test $exit_code -eq 0
