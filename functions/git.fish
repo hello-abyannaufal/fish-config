@@ -470,21 +470,147 @@ function gmr_bulk
         return 1
     end
 
-    set failed_branches
-    set no_changes_branches
+    # ==================================================
+    # Fetch latest from origin
+    # ==================================================
+    git fetch --prune --tags origin >/dev/null 2>&1
+
+    set remote_target "origin/$target_branch"
+
+    # ==================================================
+    # Resolve assignee username
+    # ==================================================
+    set assignee (glab api user 2>/dev/null | jq -r '.username')
+    if test -z "$assignee" -o "$assignee" = "null"
+        set assignee "me"
+    end
+
+    # ==================================================
+    # Get latest tag from REMOTE target branch
+    # ==================================================
+    set latest_tag (git describe --tags --abbrev=0 $remote_target 2>/dev/null)
+    if test -z "$latest_tag"
+        set latest_tag "no-tag"
+    end
+
+    # ==================================================
+    # Calculate Expected New Tag (using gver)
+    # ==================================================
+    set expected_tag "unknown"
+    if test "$latest_tag" != "no-tag"
+        set expected_tag (gver $bump_flag $remote_target)
+        if test $status -ne 0
+            set expected_tag "$latest_tag"
+        end
+    end
+
+    # ==================================================
+    # Collect results from each MR
+    # ==================================================
+    set -l mr_links
+    set -l mr_titles
+    set -l all_commits
+    set -l failed_branches
+    set -l failed_reasons
+    set -l no_changes_branches
 
     for source_branch in $source_branches
-        set result (gmr $source_branch $target_branch $reviewer $bump_flag 2>&1)
-        set exit_code $status
+        # Get commits for this branch
+        set commits (
+            git log "$remote_target..$source_branch" \
+                --no-merges \
+                --pretty=format:"- %s (%h)"
+        )
 
-        if test $exit_code -eq 0
-            printf "%s\n" $result
-            echo
-        else if test $exit_code -eq 2
+        if test (count $commits) -eq 0
             set no_changes_branches $no_changes_branches $source_branch
-        else
-            set failed_branches $failed_branches $source_branch
+            continue
         end
+
+        # Build description
+        set description (string join \n -- $commits | string collect)
+
+        set title "[MR] $source_branch → $target_branch"
+
+        # Create MR
+        set mr_output (glab mr create \
+            -s "$source_branch" \
+            -b "$target_branch" \
+            -a "$assignee" \
+            --reviewer "$reviewer" \
+            -t "$title" \
+            -d "$description" \
+            --yes 2>&1)
+        set mr_exit_code $status
+
+        if test $mr_exit_code -ne 0
+            set failed_branches $failed_branches $source_branch
+            set -a failed_reasons (string join " " -- $mr_output | string collect)
+            continue
+        end
+
+        # Extract MR link
+        set mr_link ""
+        for line in $mr_output
+            if string match -rq 'https?://[^\s]+merge_requests/[0-9]+' -- $line
+                set mr_link (string match -r 'https?://[^\s]+merge_requests/[0-9]+' -- $line)
+                break
+            end
+        end
+
+        if test -z "$mr_link"
+            set mr_link "unknown"
+        end
+
+        # Extract MR number from link
+        set mr_number (string match -r '[0-9]+$' -- $mr_link)
+
+        # Collect data
+        set -a mr_links $mr_link
+        set -a mr_titles "[!$mr_number] $source_branch → $target_branch"
+        for commit in $commits
+            set -a all_commits $commit
+        end
+
+        # Log MR success
+        set log_dir ~/.local/share/fish/logs
+        mkdir -p $log_dir
+
+        set log_file $log_dir/merge-(date "+%Y%m%d").log
+        set timestamp (date "+%Y-%m-%d %H:%M:%S")
+
+        set log_entry "[$timestamp] $mr_link | $source_branch → $target_branch | $latest_tag → $expected_tag | assignee=$assignee | reviewer=$reviewer"
+
+        echo $log_entry >> $log_file
+        printf "%s\n" $commits >> $log_file
+        echo "" >> $log_file
+    end
+
+    # ==================================================
+    # Print consolidated output
+    # ==================================================
+    if test (count $mr_links) -gt 0
+        # Print all MR links
+        for link in $mr_links
+            echo $link
+        end
+
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "📌 [MR]"
+        for mr_title in $mr_titles
+            echo "   - $mr_title"
+        end
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "🛠️ Assignee       : $assignee"
+        echo "👁️ Reviewer       : $reviewer"
+        echo "🏷️ Target Tag     : $latest_tag"
+        echo "☀️ Latest tag     : $expected_tag"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "📝 Description:"
+        for commit in $all_commits
+            echo $commit
+        end
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     end
 
     # ==================================================
@@ -505,8 +631,8 @@ function gmr_bulk
     if test (count $failed_branches) -gt 0
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo "❌ Failed to create MR:"
-        for branch in $failed_branches
-            echo "   • $branch"
+        for i in (seq (count $failed_branches))
+            echo "   • $failed_branches[$i] → $failed_reasons[$i]"
         end
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     end
