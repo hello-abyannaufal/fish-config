@@ -272,25 +272,34 @@ end
 function gmr
     if test (count $argv) -lt 3
         echo "Usage:"
-        echo "  gmr <source_branch> <target_branch> <reviewer> [--major|--minor|--patch|--pre]"
+        echo "  gmr <source_branch> <target_branch> <reviewer> [--major|--minor|--patch|--pre] [--note \"comment\"]"
         return 1
     end
 
     set -l bump_flag ""
+    set -l note ""
     set -l positional
 
-    for arg in $argv
+    set -l i 1
+    while test $i -le (count $argv)
+        set -l arg $argv[$i]
         switch $arg
             case --major --minor --patch --pre
                 set bump_flag $arg
+            case --note
+                set i (math $i + 1)
+                set note $argv[$i]
+            case '--note=*'
+                set note (string replace -- '--note=' '' $arg)
             case '*'
                 set positional $positional $arg
         end
+        set i (math $i + 1)
     end
 
     if test (count $positional) -lt 3
         echo "Usage:"
-        echo "  gmr <source_branch> <target_branch> <reviewer> [--major|--minor|--patch|--pre]"
+        echo "  gmr <source_branch> <target_branch> <reviewer> [--major|--minor|--patch|--pre] [--note \"comment\"]"
         return 1
     end
 
@@ -402,6 +411,23 @@ function gmr
     end
 
     # ==================================================
+    # Post note to MR (optional)
+    # ==================================================
+    set note_status ""
+    if test -n "$note"
+        set note_target $source_branch
+        if test "$mr_link" != "unknown"
+            set note_target (string match -r '[0-9]+$' -- $mr_link)
+        end
+
+        if glab mr note $note_target -m "$note" >/dev/null 2>&1
+            set note_status "✅ posted"
+        else
+            set note_status "❌ failed"
+        end
+    end
+
+    # ==================================================
     # Log MR success
     # ==================================================
     set log_dir ~/.local/share/fish/logs
@@ -429,31 +455,45 @@ function gmr
     echo "📝 Description:"
     printf "%s\n" "$description"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    if test -n "$note"
+        echo "💬 Note           : $note_status"
+        printf "%s\n" "$note"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    end
     echo
 end
 
 function gmr_bulk
     if test (count $argv) -lt 3
         echo "Usage:"
-        echo "  gmr_bulk <target_branch> <reviewer> <source_branch1> [source_branch2] ... [--major|--minor|--patch|--pre]"
+        echo "  gmr_bulk <target_branch> <reviewer> <source_branch1> [source_branch2] ... [--major|--minor|--patch|--pre] [--note \"comment\"]"
         return 1
     end
 
     set -l bump_flag ""
+    set -l note ""
     set -l positional
 
-    for arg in $argv
+    set -l i 1
+    while test $i -le (count $argv)
+        set -l arg $argv[$i]
         switch $arg
             case --major --minor --patch --pre
                 set bump_flag $arg
+            case --note
+                set i (math $i + 1)
+                set note $argv[$i]
+            case '--note=*'
+                set note (string replace -- '--note=' '' $arg)
             case '*'
                 set positional $positional $arg
         end
+        set i (math $i + 1)
     end
 
     if test (count $positional) -lt 3
         echo "Usage:"
-        echo "  gmr_bulk <target_branch> <reviewer> <source_branch1> [source_branch2] ... [--major|--minor|--patch|--pre]"
+        echo "  gmr_bulk <target_branch> <reviewer> <source_branch1> [source_branch2] ... [--major|--minor|--patch|--pre] [--note \"comment\"]"
         return 1
     end
 
@@ -513,6 +553,7 @@ function gmr_bulk
     set -l failed_branches
     set -l failed_reasons
     set -l no_changes_branches
+    set -l note_failed_branches
 
     for source_branch in $source_branches
         # Get commits for this branch
@@ -565,6 +606,17 @@ function gmr_bulk
         # Extract MR number from link
         set mr_number (string match -r '[0-9]+$' -- $mr_link)
 
+        # Post note to MR (optional)
+        if test -n "$note"
+            set note_target $source_branch
+            if test -n "$mr_number"
+                set note_target $mr_number
+            end
+
+            glab mr note $note_target -m "$note" >/dev/null 2>&1
+            or set -a note_failed_branches $source_branch
+        end
+
         # Collect data
         set -a mr_links $mr_link
         set -a mr_titles "[!$mr_number] $source_branch → $target_branch"
@@ -611,6 +663,15 @@ function gmr_bulk
             echo $commit
         end
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        if test -n "$note"
+            set -l note_ok (math (count $mr_links) - (count $note_failed_branches))
+            echo "💬 Note           : posted to $note_ok/"(count $mr_links)" MR"
+            printf "%s\n" "$note"
+            for branch in $note_failed_branches
+                echo "   ❌ failed: $branch"
+            end
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        end
     end
 
     # ==================================================

@@ -37,3 +37,4 @@ function __fish_gmr_bulk_pos_gte
     set -l tokens (commandline -opc)
     test (count $tokens) -ge $pos
 end
+complete -c gmr_bulk -l note -r -d "Post a comment to the MR after it is created"
