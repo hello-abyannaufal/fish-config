@@ -272,12 +272,13 @@ end
 function gmr
     if test (count $argv) -lt 3
         echo "Usage:"
-        echo "  gmr <source_branch> <target_branch> <reviewer> [--major|--minor|--patch|--pre] [--note \"comment\"]"
+        echo "  gmr <source_branch> <target_branch> <reviewer> [--major|--minor|--patch|--pre] [--assignee user] [--note \"comment\"]"
         return 1
     end
 
     set -l bump_flag ""
     set -l note ""
+    set -l assignee ""
     set -l positional
 
     set -l i 1
@@ -291,6 +292,11 @@ function gmr
                 set note $argv[$i]
             case '--note=*'
                 set note (string replace -- '--note=' '' $arg)
+            case --assignee
+                set i (math $i + 1)
+                set assignee $argv[$i]
+            case '--assignee=*'
+                set assignee (string replace -- '--assignee=' '' $arg)
             case '*'
                 set positional $positional $arg
         end
@@ -299,7 +305,7 @@ function gmr
 
     if test (count $positional) -lt 3
         echo "Usage:"
-        echo "  gmr <source_branch> <target_branch> <reviewer> [--major|--minor|--patch|--pre] [--note \"comment\"]"
+        echo "  gmr <source_branch> <target_branch> <reviewer> [--major|--minor|--patch|--pre] [--assignee user] [--note \"comment\"]"
         return 1
     end
 
@@ -326,7 +332,9 @@ function gmr
     # ==================================================
     # Resolve assignee username (NO @)
     # ==================================================
-    set assignee (glab api user 2>/dev/null | jq -r '.username')
+    if test -z "$assignee"
+        set assignee (glab api user 2>/dev/null | jq -r '.username')
+    end
 
     if test -z "$assignee" -o "$assignee" = "null"
         set assignee "me"
@@ -466,12 +474,13 @@ end
 function gmr_bulk
     if test (count $argv) -lt 3
         echo "Usage:"
-        echo "  gmr_bulk <target_branch> <reviewer> <source_branch1> [source_branch2] ... [--major|--minor|--patch|--pre] [--note \"comment\"]"
+        echo "  gmr_bulk <target_branch> <reviewer> <source_branch1> [source_branch2] ... [--major|--minor|--patch|--pre] [--assignee user] [--note \"comment\"]"
         return 1
     end
 
     set -l bump_flag ""
     set -l note ""
+    set -l assignee ""
     set -l positional
 
     set -l i 1
@@ -485,6 +494,11 @@ function gmr_bulk
                 set note $argv[$i]
             case '--note=*'
                 set note (string replace -- '--note=' '' $arg)
+            case --assignee
+                set i (math $i + 1)
+                set assignee $argv[$i]
+            case '--assignee=*'
+                set assignee (string replace -- '--assignee=' '' $arg)
             case '*'
                 set positional $positional $arg
         end
@@ -493,7 +507,7 @@ function gmr_bulk
 
     if test (count $positional) -lt 3
         echo "Usage:"
-        echo "  gmr_bulk <target_branch> <reviewer> <source_branch1> [source_branch2] ... [--major|--minor|--patch|--pre] [--note \"comment\"]"
+        echo "  gmr_bulk <target_branch> <reviewer> <source_branch1> [source_branch2] ... [--major|--minor|--patch|--pre] [--assignee user] [--note \"comment\"]"
         return 1
     end
 
@@ -520,7 +534,9 @@ function gmr_bulk
     # ==================================================
     # Resolve assignee username
     # ==================================================
-    set assignee (glab api user 2>/dev/null | jq -r '.username')
+    if test -z "$assignee"
+        set assignee (glab api user 2>/dev/null | jq -r '.username')
+    end
     if test -z "$assignee" -o "$assignee" = "null"
         set assignee "me"
     end

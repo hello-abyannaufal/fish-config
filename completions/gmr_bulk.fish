@@ -38,3 +38,4 @@ function __fish_gmr_bulk_pos_gte
     test (count $tokens) -ge $pos
 end
 complete -c gmr_bulk -l note -r -d "Post a comment to the MR after it is created"
+complete -c gmr_bulk -l assignee -r -a "(glab api projects/:id/members 2>/dev/null | jq -r '.[].username')" -d "Assignee (default: yourself)"
