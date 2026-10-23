@@ -11,7 +11,7 @@ function opsync --description 'Fill OpenProject tasks from a daily report'
     # status "New" whose subject contains <subject>, then sets Actual Start/End Date
     # to the report date, status to "In review", progress to 100%, and logs <n> hours.
     # Dry-run by default; --apply actually writes. Without a file, uses today's
-    # laporan-<d><mon>.txt. Auth: OPENPROJECT_API_KEY. Needs curl and jq.
+    # report-<yyyymmdd>.txt. Auth: OPENPROJECT_API_KEY. Needs curl and jq.
     argparse h/help p/paste apply 'status=' 'progress=!_validate_int' 'activity=' no-time -- $argv
     or return 1
 
@@ -22,17 +22,17 @@ USAGE
     opsync [file] [options]
     opsync --paste [options]
 
-    Without a file, uses today'"'"'s report: laporan-<day><month>.txt
-    (e.g. laporan-22okt.txt). The file is looked up in the current folder,
-    then in ~/Downloads/openproject-fill.
+    Without a file, uses today'"'"'s report: report-<yyyymmdd>.txt
+    (e.g. report-20261022.txt). The file is looked up in the current folder,
+    then in ~/Documents/TaskReport.
 
     Runs as a DRY-RUN by default: only shows how report lines pair with
     tasks, nothing is changed. Use --apply to actually write.
 
 OPTIONS
     -p, --paste        paste the report into the terminal instead of a file,
-                       end with Ctrl-D. Saved as laporan-<day><month>.txt
-                       (from the report date) in ~/Downloads/openproject-fill;
+                       end with Ctrl-D. Saved as report-<yyyymmdd>.txt
+                       (from the report date) in ~/Documents/TaskReport;
                        asks before overwriting a different file of that name
     --apply            write the changes to OpenProject
     --status NAME      target status (default: "In review")
@@ -88,8 +88,8 @@ EXAMPLES
     opsync --apply                          # apply today'"'"'s report
     opsync -p                               # paste a report, dry-run it
     opsync -p --apply                       # paste a report, apply it
-    opsync laporan-21okt.txt                # dry-run a specific file
-    opsync laporan-21okt.txt --apply --activity "Management"
+    opsync report-20261021.txt              # dry-run a specific file
+    opsync report-20261021.txt --apply --activity "Management"
 
 REQUIREMENTS
     curl, jq, and OPENPROJECT_API_KEY
@@ -98,8 +98,7 @@ REQUIREMENTS
         return 0
     end
 
-    set -l dir ~/Downloads/openproject-fill
-    set -l months jan feb mar apr mei jun jul agu sep okt nov des
+    set -l dir ~/Documents/TaskReport
     set -l base https://openproject.pactindo.com
     set -q OPENPROJECT_URL; and set base (string trim -r -c / -- $OPENPROJECT_URL)
     set -l target_name 'In review'
@@ -107,7 +106,7 @@ REQUIREMENTS
     set -l progress 100
     set -q _flag_progress; and set progress $_flag_progress
 
-    set -l file laporan-(date +%-d)$months[(date +%-m)].txt
+    set -l file report-(date +%Y%m%d).txt
     set -q argv[1]; and set file $argv[1]
 
     if set -q _flag_paste
@@ -117,18 +116,18 @@ REQUIREMENTS
         end
         isatty stdin; and echo 'Paste the report, then press Ctrl-D on an empty line:'
         set -l text (cat)
-        # Name the file after the report's own date, e.g. laporan-22okt.txt
+        # Name the file after the report's own date, e.g. report-20261022.txt
         set -l header (string match -r '^\s*\w+,\s*\d{1,2}\s+\w+\s+\d{4}\s*$' -- $text)[1]
         # Check for an empty header first: date -d "" means today, not an error
         set -l day
         test -n "$header"
-        and set day (date -d (string replace -r '^\s*\w+,\s*' '' -- $header | string trim) '+%-d %-m' 2>/dev/null)
+        and set day (date -d (string replace -r '^\s*\w+,\s*' '' -- $header | string trim) +%Y%m%d 2>/dev/null)
         or begin
             echo 'No valid date header in the pasted report, e.g. "Thursday, 22 October 2026"'
             return 1
         end
-        set day (string split ' ' -- $day)
-        set file $dir/laporan-$day[1]$months[$day[2]].txt
+        mkdir -p $dir
+        set file $dir/report-$day.txt
         if not test -f $file
             printf '%s\n' $text >$file
             echo "Saved to $file"
